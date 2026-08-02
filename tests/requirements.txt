@@ -1,0 +1,2 @@
+scikit-bio==0.7.3
+DendroPy==5.0.8
