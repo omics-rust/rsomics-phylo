@@ -153,10 +153,10 @@ impl DistanceMatrix {
             for column in 0..row {
                 let value = self.values[row * n + column];
                 if !value.is_finite() {
-                    return Err(PhyloError::NonFiniteInferenceDistance { row, column });
+                    return Err(PhyloError::NonFiniteDistance { row, column });
                 }
                 if value < 0.0 {
-                    return Err(PhyloError::NegativeInferenceDistance { row, column, value });
+                    return Err(PhyloError::NegativeDistance { row, column, value });
                 }
             }
         }

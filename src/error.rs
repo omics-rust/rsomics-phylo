@@ -31,12 +31,10 @@ pub enum PhyloError {
     InfiniteDistance { row: usize, column: usize },
     #[error("distance matrix is asymmetric at rows {left} and {right}")]
     AsymmetricDistance { left: usize, right: usize },
-    #[error("tree inference requires a finite distance at rows {row} and {column}")]
-    NonFiniteInferenceDistance { row: usize, column: usize },
-    #[error(
-        "tree inference requires nonnegative distances, got {value} at rows {row} and {column}"
-    )]
-    NegativeInferenceDistance {
+    #[error("operation requires a finite distance at rows {row} and {column}")]
+    NonFiniteDistance { row: usize, column: usize },
+    #[error("operation requires nonnegative distances, got {value} at rows {row} and {column}")]
+    NegativeDistance {
         row: usize,
         column: usize,
         value: f64,
