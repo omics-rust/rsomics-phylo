@@ -5,6 +5,9 @@ distance-based tree inference, tree comparison, tree measures, and the Hommola
 cospeciation test. It replaces operation-sized crates with one installable
 binary and one library built around shared alignment, matrix, and tree models.
 
+The 0.2 source adds WPGMA. The registry still provides 0.1.0; that immutable
+archive does not contain WPGMA. Native distribution is prepared separately.
+
 ```console
 cargo install rsomics-phylo
 rsomics-phylo trim -i aligned.fa -o trimmed.fa --maximum-gap-fraction 0.2
@@ -21,7 +24,7 @@ The command surface is:
 
 - `trim`: remove columns whose gap fraction exceeds a threshold;
 - `distance`: literal Hamming, JC69, or K2P sequence distances;
-- `infer`: neighbor joining or UPGMA from a labeled distance matrix;
+- `infer`: neighbor joining, UPGMA, or WPGMA from a labeled distance matrix;
 - `compare`: RF, weighted RF, Kuhner-Felsenstein branch score, directional
   false-positive/false-negative counts, or cophenetic distance;
 - `tip-distance`: all named-tip path distances by branch length or edge count;
@@ -45,8 +48,10 @@ Hamming compares every byte literally. JC69 and K2P use pairwise deletion and
 accept uppercase `A`, `C`, `G`, and `T` or `U`; every other byte is missing.
 Saturated corrected distances are emitted as `NaN`. Neighbor joining emits an
 unrooted three-way final join and clamps negative inferred branches by default;
-`--negative-branches allow` retains them. UPGMA emits a rooted ultrametric
-tree.
+`--negative-branches allow` retains them. UPGMA and WPGMA emit rooted
+ultrametric trees. UPGMA weights merged-cluster distances by their number of
+taxa; WPGMA weights the two clusters equally. WPGMA requires at least three
+taxa and rejects the NJ-only negative-branch override.
 
 Tree comparisons require the exact same named taxa and report any mismatch.
 Newick underscores remain underscores unless `--convert-underscores` is set.

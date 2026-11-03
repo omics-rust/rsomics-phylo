@@ -28,31 +28,98 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Prepare explicit runner storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pair in CARGO_HOME=cargo-home CARGO_TARGET_DIR=cargo-target RUSTUP_HOME=rustup-home TMPDIR=scratch XDG_CACHE_HOME=cache PIP_CACHE_DIR=pip-cache MPLCONFIGDIR=mpl-cache NUMBA_CACHE_DIR=numba-cache; do
+            name="${pair%%=*}"
+            path="$RUNNER_TEMP/${pair#*=}"
+            mkdir -p "$path"
+            printf '%s=%s\n' "$name" "$path" >> "$GITHUB_ENV"
+          done
+          mkdir -p "$RUNNER_TEMP/delivery"
+          echo 'PYTHONDONTWRITEBYTECODE=1' >> "$GITHUB_ENV"
+          echo 'OPENBLAS_NUM_THREADS=1' >> "$GITHUB_ENV"
+          echo 'OMP_NUM_THREADS=1' >> "$GITHUB_ENV"
+          echo 'MKL_NUM_THREADS=1' >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@1.91.0
         with:
           components: clippy,rustfmt
+      - name: Verify native host and resolved target
+        shell: bash
+        run: |
+          set -euo pipefail
+          case '${{ matrix.target }}' in
+            linux-x86_64) system=Linux; arch=x86_64; host=x86_64-unknown-linux-gnu ;;
+            linux-aarch64) system=Linux; arch=aarch64; host=aarch64-unknown-linux-gnu ;;
+            macos-x86_64) system=Darwin; arch=x86_64; host=x86_64-apple-darwin ;;
+            macos-aarch64) system=Darwin; arch=arm64; host=aarch64-apple-darwin ;;
+            *) exit 1 ;;
+          esac
+          test "$(uname -s)" = "$system"
+          test "$(uname -m)" = "$arch"
+          test -z "${CARGO_BUILD_TARGET:-}"
+          rustc -Vv > "$RUNNER_TEMP/delivery/rustc.txt"
+          cargo -V > "$RUNNER_TEMP/delivery/cargo.txt"
+          uname -sm > "$RUNNER_TEMP/delivery/native-host.txt"
+          test "$(rustc -Vv | sed -n 's/^host: //p')" = "$host"
+          echo "EXPECTED_HOST=$host" >> "$GITHUB_ENV"
+          echo 'NATIVE_TARGET=${{ matrix.target }}' >> "$GITHUB_ENV"
+          cargo metadata --locked --no-deps --format-version 1 | python3 -B -c 'import json,os,sys; assert json.load(sys.stdin)["target_directory"] == os.environ["CARGO_TARGET_DIR"]'
       - if: matrix.target == 'linux-x86_64'
-        run: cargo fmt --all -- --check
+        run: cargo fmt --all -- --check > "$RUNNER_TEMP/delivery/fmt.stdout" 2> "$RUNNER_TEMP/delivery/fmt.stderr"
       - if: matrix.target == 'linux-x86_64'
-        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings > "$RUNNER_TEMP/delivery/clippy.stdout" 2> "$RUNNER_TEMP/delivery/clippy.stderr"
       - if: matrix.target == 'linux-x86_64'
-        run: cargo doc --locked --no-deps --all-features
+        run: cargo doc --locked --no-deps --all-features > "$RUNNER_TEMP/delivery/rustdoc.stdout" 2> "$RUNNER_TEMP/delivery/rustdoc.stderr"
         env:
           RUSTDOCFLAGS: -D warnings
-      - if: matrix.target == 'linux-x86_64'
-        run: cargo package --locked
-      - run: cargo test --locked --all-targets --all-features
-      - run: cargo test --release --locked --all-targets --all-features
+      - run: cargo test --locked --all-targets --all-features > "$RUNNER_TEMP/delivery/debug.stdout" 2> "$RUNNER_TEMP/delivery/debug.stderr"
+      - run: cargo test --release --locked --all-targets --all-features > "$RUNNER_TEMP/delivery/release.stdout" 2> "$RUNNER_TEMP/delivery/release.stderr"
       - if: matrix.target == 'linux-x86_64'
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-          cache: pip
-          cache-dependency-path: tests/requirements.txt
       - if: matrix.target == 'linux-x86_64'
-        run: python -m pip install --requirement tests/requirements.txt
+        run: python -m pip install --requirement tests/requirements.txt > "$RUNNER_TEMP/delivery/oracle-install.stdout" 2> "$RUNNER_TEMP/delivery/oracle-install.stderr"
       - if: matrix.target == 'linux-x86_64'
         run: |
-          git clone --branch v1.5.1 --depth 1 https://github.com/inab/trimal.git "$RUNNER_TEMP/trimal"
-          make -C "$RUNNER_TEMP/trimal/source" trimal
-          python tests/oracle.py target/debug/rsomics-phylo "$RUNNER_TEMP/trimal/source/trimal"
+          git clone --no-checkout https://github.com/inab/trimal.git "$RUNNER_TEMP/trimal" > "$RUNNER_TEMP/delivery/trimal-clone.stdout" 2> "$RUNNER_TEMP/delivery/trimal-clone.stderr"
+          git -C "$RUNNER_TEMP/trimal" checkout --detach d637091abe33595775f40480970d1a18d87a7bcb
+          make -C "$RUNNER_TEMP/trimal/source" trimal > "$RUNNER_TEMP/delivery/trimal-build.stdout" 2> "$RUNNER_TEMP/delivery/trimal-build.stderr"
+          python -B tests/oracle.py "$CARGO_TARGET_DIR/debug/rsomics-phylo" "$RUNNER_TEMP/trimal/source/trimal" > "$RUNNER_TEMP/delivery/oracle.stdout" 2> "$RUNNER_TEMP/delivery/oracle.stderr"
+      - name: Verify complete normalized source package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo metadata --locked --no-deps --format-version 1 > "$RUNNER_TEMP/delivery/package-metadata.json"
+          cargo package --locked --list > "$RUNNER_TEMP/delivery/package-files.txt"
+          cargo package --locked > "$RUNNER_TEMP/delivery/package.stdout" 2> "$RUNNER_TEMP/delivery/package.stderr"
+          python3 -B scripts/delivery.py source > "$RUNNER_TEMP/delivery/source.stdout" 2> "$RUNNER_TEMP/delivery/source.stderr"
+      - name: Fresh package install and installed product lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo install --path "$PACKAGE_DIRECTORY" --locked --root "$RUNNER_TEMP/installed" > "$RUNNER_TEMP/delivery/install.stdout" 2> "$RUNNER_TEMP/delivery/install.stderr"
+          python3 -B "$PACKAGE_DIRECTORY/scripts/delivery.py" smoke --binary "$RUNNER_TEMP/installed/bin/rsomics-phylo"
+          python3 -B scripts/delivery.py bundle --binary "$RUNNER_TEMP/installed/bin/rsomics-phylo" > "$RUNNER_TEMP/delivery/bundle.stdout" 2> "$RUNNER_TEMP/delivery/bundle.stderr"
+      - name: Retain native/source originals and complete lifecycle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rsomics-phylo-delivery-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/delivery/rsomics-phylo-0.2.0.crate
+            ${{ runner.temp }}/delivery/rsomics-phylo-0.2.0-*.tar.gz
+            ${{ runner.temp }}/delivery/SHA256SUMS
+            ${{ runner.temp }}/delivery/*.json
+            ${{ runner.temp }}/delivery/*.txt
+            ${{ runner.temp }}/delivery/*.stdout
+            ${{ runner.temp }}/delivery/*.stderr
+            ${{ runner.temp }}/delivery/lifecycle/**
+          if-no-files-found: error
+          retention-days: 90
