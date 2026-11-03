@@ -132,6 +132,7 @@ struct DistanceArgs {
 enum InferenceMethodArg {
     Nj,
     Upgma,
+    Wpgma,
 }
 
 impl From<InferenceMethodArg> for InferenceMethod {
@@ -139,6 +140,7 @@ impl From<InferenceMethodArg> for InferenceMethod {
         match value {
             InferenceMethodArg::Nj => Self::NeighborJoining,
             InferenceMethodArg::Upgma => Self::Upgma,
+            InferenceMethodArg::Wpgma => Self::Wpgma,
         }
     }
 }
@@ -416,7 +418,7 @@ fn execute_distance(args: DistanceArgs) -> Result<ExecutionReport> {
 }
 
 fn execute_infer(args: InferArgs) -> Result<ExecutionReport> {
-    if matches!(args.method, InferenceMethodArg::Upgma)
+    if !matches!(args.method, InferenceMethodArg::Nj)
         && matches!(args.negative_branches, NegativeBranchArg::Allow)
     {
         return Err(RsomicsError::ConfigError(

@@ -16,7 +16,11 @@ fn main() {
         environment("RSOMICS_BENCH_REPETITIONS", 5)
     };
     let matrix = euclidean_matrix(taxa);
-    for method in [InferenceMethod::NeighborJoining, InferenceMethod::Upgma] {
+    for method in [
+        InferenceMethod::NeighborJoining,
+        InferenceMethod::Upgma,
+        InferenceMethod::Wpgma,
+    ] {
         let mut elapsed = Vec::with_capacity(repetitions);
         for _ in 0..repetitions {
             let started = Instant::now();

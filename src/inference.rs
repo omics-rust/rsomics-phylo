@@ -6,6 +6,7 @@ use crate::{DistanceMatrix, PhyloError, Result};
 pub enum InferenceMethod {
     NeighborJoining,
     Upgma,
+    Wpgma,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -22,7 +23,13 @@ pub fn infer_tree(
     matrix.require_finite_nonnegative()?;
     match method {
         InferenceMethod::NeighborJoining => neighbor_joining(matrix, negative_branches),
-        InferenceMethod::Upgma => upgma(matrix),
+        InferenceMethod::Upgma => pair_group(matrix, PairGroupWeight::Taxa),
+        InferenceMethod::Wpgma => {
+            if matrix.size() < 3 {
+                return Err(PhyloError::TooFewWpgmaTaxa);
+            }
+            pair_group(matrix, PairGroupWeight::Clusters)
+        }
     }
 }
 
@@ -32,7 +39,13 @@ enum Shape {
     Internal(Vec<(Shape, f64)>),
 }
 
-fn upgma(matrix: &DistanceMatrix) -> Result<Tree> {
+#[derive(Clone, Copy)]
+enum PairGroupWeight {
+    Taxa,
+    Clusters,
+}
+
+fn pair_group(matrix: &DistanceMatrix, weight: PairGroupWeight) -> Result<Tree> {
     let n = matrix.size();
     let mut condensed = Vec::with_capacity(n * (n - 1) / 2);
     for row in 0..n {
@@ -40,7 +53,7 @@ fn upgma(matrix: &DistanceMatrix) -> Result<Tree> {
             condensed.push(matrix.get(row, column));
         }
     }
-    let merges = average_linkage(&condensed, n);
+    let merges = pair_group_linkage(&condensed, n, weight);
     let mut shapes = matrix
         .ids()
         .iter()
@@ -75,7 +88,7 @@ struct LinkageMerge {
     distance: f64,
 }
 
-fn average_linkage(condensed: &[f64], n: usize) -> Vec<LinkageMerge> {
+fn pair_group_linkage(condensed: &[f64], n: usize, weight: PairGroupWeight) -> Vec<LinkageMerge> {
     let mut distances = condensed.to_vec();
     let mut sizes = vec![1usize; n];
     let mut chain = vec![0usize; n];
@@ -126,9 +139,15 @@ fn average_linkage(condensed: &[f64], n: usize) -> Vec<LinkageMerge> {
             if sizes[other] == 0 || other == right {
                 continue;
             }
-            let updated = (distances[condensed_index(n, other, left)] * left_size as f64
-                + distances[condensed_index(n, other, right)] * right_size as f64)
-                / (left_size + right_size) as f64;
+            let left_distance = distances[condensed_index(n, other, left)];
+            let right_distance = distances[condensed_index(n, other, right)];
+            let updated = match weight {
+                PairGroupWeight::Taxa => {
+                    (left_distance * left_size as f64 + right_distance * right_size as f64)
+                        / (left_size + right_size) as f64
+                }
+                PairGroupWeight::Clusters => (left_distance + right_distance) / 2.0,
+            };
             let index = condensed_index(n, other, right);
             distances[index] = updated;
         }

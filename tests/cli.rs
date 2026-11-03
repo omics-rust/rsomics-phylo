@@ -26,6 +26,79 @@ fn assert_success(output: &Output) {
 }
 
 #[test]
+fn wpgma_weights_clusters_equally_and_preserves_failed_output() {
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("distance.tsv");
+    let output = directory.path().join("tree.nwk");
+    fs::write(
+        &input,
+        "id\ta\tb\tc\td\na\t0\t2\t4\t10\nb\t2\t0\t6\t14\nc\t4\t6\t0\t20\nd\t10\t14\t20\t0\n",
+    )
+    .unwrap();
+    let observed = run(&[
+        "infer",
+        "-i",
+        input.to_str().unwrap(),
+        "-o",
+        output.to_str().unwrap(),
+        "--method",
+        "wpgma",
+    ]);
+    assert_success(&observed);
+    let weighted = fs::read_to_string(&output).unwrap();
+    assert_eq!(weighted.trim(), "(d:8,(c:2.5,(a:1,b:1):1.5):5.5);");
+    let observed = run(&[
+        "infer",
+        "-i",
+        input.to_str().unwrap(),
+        "-o",
+        output.to_str().unwrap(),
+        "--method",
+        "upgma",
+    ]);
+    assert_success(&observed);
+    assert_ne!(fs::read_to_string(&output).unwrap(), weighted);
+    fs::write(&output, b"retained output\n").unwrap();
+    let observed = run(&[
+        "infer",
+        "-i",
+        input.to_str().unwrap(),
+        "-o",
+        output.to_str().unwrap(),
+        "--method",
+        "wpgma",
+        "--negative-branches",
+        "allow",
+    ]);
+    assert!(!observed.status.success());
+    assert_eq!(fs::read(&output).unwrap(), b"retained output\n");
+    fs::write(&input, b"id\ta\tb\na\t0\t2\nb\t2\t0\n").unwrap();
+    let observed = run(&[
+        "infer",
+        "-i",
+        input.to_str().unwrap(),
+        "-o",
+        output.to_str().unwrap(),
+        "--method",
+        "wpgma",
+    ]);
+    assert!(!observed.status.success());
+    assert_eq!(fs::read(&output).unwrap(), b"retained output\n");
+    fs::write(&input, b"id\ta\tb\na\t0\t-1\nb\t-1\t0\n").unwrap();
+    let observed = run(&[
+        "infer",
+        "-i",
+        input.to_str().unwrap(),
+        "-o",
+        output.to_str().unwrap(),
+        "--method",
+        "wpgma",
+    ]);
+    assert!(!observed.status.success());
+    assert_eq!(fs::read(&output).unwrap(), b"retained output\n");
+}
+
+#[test]
 fn every_initial_subcommand_executes_real_work() {
     let directory = tempfile::tempdir().unwrap();
     let trim = directory.path().join("trim.fa");

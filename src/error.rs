@@ -23,6 +23,8 @@ pub enum PhyloError {
     EmptyTrimResult,
     #[error("distance matrix must contain at least two identities")]
     TooFewMatrixRows,
+    #[error("WPGMA requires at least three identities")]
+    TooFewWpgmaTaxa,
     #[error("distance matrix shape is {observed}, expected {expected} cells")]
     MatrixShape { observed: usize, expected: usize },
     #[error("distance matrix diagonal at row {0} must be zero")]

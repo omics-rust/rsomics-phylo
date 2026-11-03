@@ -84,22 +84,54 @@ def inference_oracle(directory):
         ids = [f"t{index}" for index in range(count)]
         matrix = directory / "inference.tsv"
         write_matrix(matrix, ids, values)
-        for method in ("nj", "upgma"):
+        for method in ("nj", "upgma", "wpgma"):
             output = directory / f"{method}.nwk"
             execute("infer", "-i", matrix, "-o", output, "--method", method)
             observed = TreeNode.read([output.read_text()])
             oracle = (
                 nj(DistanceMatrix(values, ids), neg_as_zero=True)
                 if method == "nj"
-                else upgma(DistanceMatrix(values, ids))
+                else upgma(DistanceMatrix(values, ids), weighted=method == "wpgma")
             )
-            assert observed.compare_rfd(oracle, rooted=method == "upgma") == 0
+            assert observed.compare_rfd(oracle, rooted=method != "nj") == 0
             difference = observed.compare_wrfd(
-                oracle, rooted=method == "upgma", metric="euclidean"
+                oracle, rooted=method != "nj", metric="euclidean"
             )
             maximum = max(maximum, difference)
             assert difference <= 2e-10
-    return 40, maximum
+    for values in [
+        [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
+        [[0, 1, 1, 1], [1, 0, 1, 1], [1, 1, 0, 1], [1, 1, 1, 0]],
+        [[0, 2, 4, 10], [2, 0, 6, 14], [4, 6, 0, 20], [10, 14, 20, 0]],
+    ]:
+        ids = [f"t{index}" for index in range(len(values))]
+        matrix = directory / "inference.tsv"
+        output = directory / "wpgma.nwk"
+        write_matrix(matrix, ids, values)
+        execute("infer", "-i", matrix, "-o", output, "--method", "wpgma")
+        observed = TreeNode.read([output.read_text()])
+        oracle = upgma(DistanceMatrix(values, ids), weighted=True)
+        assert observed.compare_rfd(oracle, rooted=True) == 0
+        difference = observed.compare_wrfd(oracle, rooted=True, metric="euclidean")
+        maximum = max(maximum, difference)
+        assert difference <= 2e-10
+    matrix = directory / "inference.tsv"
+    write_matrix(matrix, ["a", "b"], [[0, 2], [2, 0]])
+    output = directory / "wpgma.nwk"
+    output.write_text("retained output\n")
+    rejected = subprocess.run(
+        [BINARY, "infer", "-i", matrix, "-o", output, "--method", "wpgma"],
+        capture_output=True, text=True,
+    )
+    assert rejected.returncode != 0
+    assert output.read_text() == "retained output\n"
+    try:
+        upgma(DistanceMatrix([[0, 2], [2, 0]], ["a", "b"]), weighted=True)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("source unexpectedly accepts two taxa for WPGMA")
+    return 64, maximum
 
 
 def tree_oracles(directory):
